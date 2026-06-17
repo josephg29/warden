@@ -1,0 +1,56 @@
+{
+  "name": "mc-warden",
+  "version": "0.1.0",
+  "description": "Operational layer for running a fleet of LLM-driven Minecraft bots — dashboard, watchdog, atomic slot recycle, snapshot-before-wipe, disk surveillance.",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "setup": "node scripts/setup-server.js",
+    "supervisor": "node scripts/supervisor.mjs",
+    "overnight": "node scripts/supervisor.mjs",
+    "observe": "node scripts/observe-fleet.mjs",
+    "observe:json": "node scripts/observe-fleet.mjs --json",
+    "clean:pids": "node scripts/cleanup-stale-pids.mjs",
+    "medic": "node scripts/fleet-medic.mjs",
+    "test": "node --test",
+    "test:safe-error": "node --test test/safe-error.test.mjs"
+  },
+  "keywords": [
+    "minecraft",
+    "mineflayer",
+    "llm",
+    "agent",
+    "bot",
+    "ai",
+    "cerebras",
+    "watchdog",
+    "fleet",
+    "operations",
+    "autonomous"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/josephg29/warden.git"
+  },
+  "bugs": {
+    "url": "https://github.com/josephg29/warden/issues"
+  },
+  "homepage": "https://github.com/josephg29/warden#readme",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "express": "^4.21.2",
+    "minecraft-data": "^3.109.1",
+    "mineflayer": "^4.23.0",
+    "mineflayer-pathfinder": "^2.4.5",
+    "nanoid": "^5.0.9",
+    "openai": "^6.35.0",
+    "ws": "^8.18.0"
+  }
+}

@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Warden — Mission Control</title>
+  <link rel="preconnect" href="data:" />
+  <link rel="stylesheet" href="/css/base.css" />
+  <link rel="stylesheet" href="/css/app.css" />
+</head>
+<body>
+
+  <!-- ============================================================
+       HUD — sticky top bar
+       brand · fleet pills · system clock
+       ============================================================ -->
+  <header class="hud">
+    <div class="hud__brand">
+      <svg class="hud__mark" viewBox="0 0 32 32" aria-hidden="true">
+        <defs>
+          <linearGradient id="markFill" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#ffb547"/>
+            <stop offset="1" stop-color="#f6932b"/>
+          </linearGradient>
+        </defs>
+        <path d="M16 5 L13 9 L8 7 L11 12 L4 14 L11 16 L6 22 L13 19 L13 26 L16 22 L19 26 L19 19 L26 22 L21 16 L28 14 L21 12 L24 7 L19 9 Z" fill="url(#markFill)" opacity="0.95"/>
+        <circle cx="16" cy="14" r="1.5" fill="#0a0c11"/>
+      </svg>
+      <div class="hud__brand-text">
+        <span class="hud__title">Warden</span>
+        <span class="hud__subtitle">Mission Control</span>
+      </div>
+    </div>
+
+    <div class="hud__pills">
+      <div class="pill" id="pill-fleet" data-state="idle">
+        <span class="pill__label">Fleet</span>
+        <span class="pill__value" id="pill-fleet-value">0/0</span>
+      </div>
+      <div class="pill" id="pill-cerebras" data-state="unknown">
+        <span class="pill__label">LLM</span>
+        <span class="pill__value" id="pill-cerebras-value">checking</span>
+      </div>
+      <div class="pill" id="pill-disk" data-state="ok">
+        <span class="pill__label">Disk</span>
+        <span class="pill__value" id="pill-disk-value">— GB</span>
+      </div>
+      <div class="pill" id="pill-ws" data-state="connecting">
+        <span class="pill__label">Link</span>
+        <span class="pill__value" id="pill-ws-value">connecting</span>
+      </div>
+    </div>
+
+    <div class="hud__meta">
+      <span class="hud__clock" id="hud-clock">00:00:00</span>
+      <span class="hud__uptime" id="hud-uptime">uptime 0m</span>
+      <button class="hud__help" id="hud-help" aria-label="keyboard shortcuts" title="press ?">
+        <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+          <circle cx="8" cy="8" r="6.5"/>
+          <path d="M6 6c0-1 1-2 2-2s2 1 2 2-2 1.5-2 3"/>
+          <circle cx="8" cy="11.5" r="0.6" fill="currentColor"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ============================================================
+       MAIN — fleet grid + decision stream
+       ============================================================ -->
+  <main class="stage">
+
+    <section class="leaderboard" aria-label="Leaderboard">
+      <div class="section-head">
+        <span class="section-head__label">Leaderboard</span>
+        <div class="section-head__controls">
+          <span class="leaderboard__hint" id="lb-hint">ranked by tier · inventory · success rate · uptime</span>
+          <button class="chip chip--ghost" id="lb-reset" title="reset stats">reset stats</button>
+        </div>
+      </div>
+      <ol class="leaderboard__list" id="leaderboard">
+        <!-- ranked tiles injected here -->
+      </ol>
+    </section>
+
+    <section class="fleet" aria-label="Fleet">
+      <div class="section-head">
+        <span class="section-head__label">Fleet</span>
+        <span class="section-head__hint" id="fleet-hint">8 bots · click for detail · press 1–8 to focus</span>
+      </div>
+      <div class="fleet__grid" id="fleet-grid">
+        <!-- bot cards injected here -->
+      </div>
+    </section>
+
+    <section class="stream" aria-label="Decision stream">
+      <div class="section-head">
+        <span class="section-head__label">Decision Stream</span>
+        <div class="section-head__controls">
+          <button class="chip chip--toggle is-on" data-filter="decide" title="decisions">decide</button>
+          <button class="chip chip--toggle is-on" data-filter="skill_done" title="skill results">done</button>
+          <button class="chip chip--toggle is-on" data-filter="chat" title="chat">chat</button>
+          <button class="chip chip--toggle is-on" data-filter="error" title="errors">error</button>
+          <span class="stream__count"><span id="stream-count">0</span> events</span>
+          <button class="chip chip--ghost" id="stream-clear" title="clear visible">clear</button>
+        </div>
+      </div>
+      <div class="stream__log" id="stream-log" role="log" aria-live="polite">
+        <!-- stream rows injected here -->
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ============================================================
+       DRAWER — detail panel (right side)
+       opens on bot click; closes with Esc / backdrop click
+       ============================================================ -->
+  <aside class="drawer" id="drawer" aria-hidden="true">
+    <div class="drawer__scrim" data-drawer-close></div>
+    <div class="drawer__panel" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+      <header class="drawer__head">
+        <div class="drawer__title-row">
+          <span class="drawer__dot" id="drawer-dot"></span>
+          <h2 id="drawer-title" class="drawer__title">—</h2>
+          <span class="drawer__sub" id="drawer-sub">—</span>
+        </div>
+        <button class="drawer__close" data-drawer-close aria-label="close detail" title="Esc">
+          <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <path d="M4 4 L12 12 M12 4 L4 12"/>
+          </svg>
+        </button>
+      </header>
+
+      <div class="drawer__body" id="drawer-body">
+        <!-- detail sections injected here -->
+      </div>
+    </div>
+  </aside>
+
+  <!-- ============================================================
+       HELP overlay (keyboard shortcuts)
+       ============================================================ -->
+  <div class="overlay" id="overlay-help" aria-hidden="true">
+    <div class="overlay__scrim" data-overlay-close></div>
+    <div class="overlay__panel" role="dialog" aria-modal="true" aria-labelledby="help-title">
+      <header class="overlay__head">
+        <h2 id="help-title">Shortcuts</h2>
+        <button class="overlay__close" data-overlay-close aria-label="close">
+          <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4 L12 12 M12 4 L4 12"/></svg>
+        </button>
+      </header>
+      <div class="overlay__body">
+        <dl class="kbd-list">
+          <dt><kbd>1</kbd>–<kbd>8</kbd></dt><dd>Focus bot 1 through 8</dd>
+          <dt><kbd>J</kbd> / <kbd>K</kbd></dt><dd>Cycle next / previous bot</dd>
+          <dt><kbd>Enter</kbd></dt><dd>Open detail for focused bot</dd>
+          <dt><kbd>Esc</kbd></dt><dd>Close detail or overlay</dd>
+          <dt><kbd>F</kbd></dt><dd>Filter decision stream to focused bot</dd>
+          <dt><kbd>C</kbd></dt><dd>Clear decision stream</dd>
+          <dt><kbd>?</kbd></dt><dd>Toggle this help</dd>
+        </dl>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       Toast root (transient messages)
+       ============================================================ -->
+  <div class="toast-root" id="toast-root" aria-live="polite"></div>
+
+  <script type="module" src="/js/main.js"></script>
+</body>
+</html>

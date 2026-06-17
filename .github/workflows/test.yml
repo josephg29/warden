@@ -1,0 +1,38 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node: [18, 20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - name: syntax check
+        run: |
+          node --check src/index.js
+          node --check src/safe-error.js
+          node --check src/heartbeat.js
+          node --check src/bots/brain.js
+          node --check src/bots/instance.js
+          node --check data/overnight/watchdog.mjs
+          node --check scripts/cloudflared-watcher.mjs
+      - name: unit tests
+        run: node --test test/safe-error.test.mjs
+        # NOTE: brain-hardblock tests require session-A's _addBlockedSig
+        # machinery which lives on a fix branch not yet merged. The full
+        # `node --test test/` will be enabled once the brain branches land
+        # on main.

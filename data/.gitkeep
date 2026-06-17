@@ -1,0 +1,2 @@
+This directory is created at runtime by the dashboard. Configuration files
+(settings.json, bots.json) live here per-host and are gitignored.
