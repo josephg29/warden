@@ -1,9 +1,8 @@
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
-import OpenAI from 'openai';
 import { config } from '../config.js';
-import { settingsStore } from '../settings-store.js';
+import { resolveLLM, createLLMClient } from '../llm.js';
 
 // ---------------------------------------------------------------------------
 // Tunables
@@ -14,13 +13,9 @@ const COMPRESS_THRESHOLD   = 15;
 const COMPRESS_TARGET      = 10;
 const COMPRESS_TIMEOUT_MS  = 8000;
 
-// Local LLM swap — mirrors USE_LOCAL_LLM in brain.js so memory compression
-// routes to the same endpoint as the decision loop. Without this, compression
-// keeps calling Cerebras even on local runs (observed: 473 consecutive 402s).
-const USE_LOCAL_LLM      = process.env.USE_LOCAL_LLM === '1';
-const LOCAL_LLM_BASE_URL = process.env.LOCAL_LLM_BASE_URL ?? 'http://localhost:11434/v1';
-const LOCAL_LLM_MODEL    = process.env.LOCAL_LLM_MODEL    ?? 'qwen2.5:7b';
-const CEREBRAS_MODEL     = 'qwen-3-235b-a22b-instruct-2507';
+// Memory compression shares the same provider resolver as the decision loop
+// (../llm.js), so it always calls whatever endpoint the brain is using rather
+// than a hardcoded one (which caused 473 consecutive 402s on local runs).
 const RECENT_EVENT_TTL_MS  = 6 * 60 * 1000;   // drop events older than ~6 min from render
 const REPLY_ATTRIBUTION_MS = 60 * 1000;       // bot say attributed to person if they spoke within 60s
 const MAX_EXCHANGES        = 6;
@@ -698,7 +693,7 @@ export class PlayerMemory {
 
   async _summarize(events) {
     const client = this._ensureClient();
-    if (!client) throw new Error('no Cerebras key — cannot compress');
+    if (!client) throw new Error('no LLM API key — cannot compress');
     const lines = events.map((e) => {
       const loc = e.location ? ` @ (${e.location.x},${e.location.z})` : '';
       const ago = relTime(Date.now() - e.ts);
@@ -709,7 +704,7 @@ export class PlayerMemory {
     const timer = setTimeout(() => ctrl.abort(), COMPRESS_TIMEOUT_MS);
     try {
       const res = await client.chat.completions.create({
-        model:       USE_LOCAL_LLM ? LOCAL_LLM_MODEL : CEREBRAS_MODEL,
+        model:       resolveLLM().model,
         messages:    [
           { role: 'system', content: COMPRESS_SYSTEM },
           { role: 'user',   content: `Events:\n${lines}\n\nOne-sentence summary:` },
@@ -727,13 +722,7 @@ export class PlayerMemory {
 
   _ensureClient() {
     if (this._client) return this._client;
-    if (USE_LOCAL_LLM) {
-      this._client = new OpenAI({ apiKey: 'ollama', baseURL: LOCAL_LLM_BASE_URL });
-      return this._client;
-    }
-    const apiKey = config.cerebrasApiKey || settingsStore.get('cerebrasApiKey');
-    if (!apiKey) return null;
-    this._client = new OpenAI({ apiKey, baseURL: 'https://api.cerebras.ai/v1' });
+    this._client = createLLMClient(); // null if no key is configured
     return this._client;
   }
 }

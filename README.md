@@ -14,8 +14,10 @@ project does for your bot fleet.
 > [!warning]
 > **early release.** this is research-grade software extracted from a working
 > personal setup. it does run 5 bots in parallel for 24+ hours without manual
-> intervention, but it has rough edges, hardcodes a single LLM provider
-> (Cerebras), and assumes a fixed slot layout. PRs welcome.
+> intervention, but it has rough edges and assumes a fixed slot layout. it
+> works with any OpenAI-compatible LLM API (Cerebras, OpenAI, OpenRouter, Groq,
+> Together, DeepSeek, Mistral, xAI, local Ollama, or any custom endpoint). PRs
+> welcome.
 
 ```
 ┌─ dashboard (8080)  ──────────────────┐    ┌─ live page ─┐
@@ -74,7 +76,7 @@ runs on your laptop.
 git clone https://github.com/josephg29/warden.git
 cd warden
 npm install
-cp .env.example .env  # then add your CEREBRAS_API_KEY
+cp .env.example .env  # then add your LLM_API_KEY (any OpenAI-compatible provider)
 npm run setup          # downloads paper.jar to data/minecraft-server/ (skip if you have your own)
 npm start              # open http://127.0.0.1:8080
 ```
@@ -171,13 +173,19 @@ lookup, slot recycle, disk pressure, tunnel rotation, fleet fate-sharing).
 ## environment
 
 ```
-CEREBRAS_API_KEY    required for the brain. see https://cloud.cerebras.ai
-HOST                default 127.0.0.1
-PORT                default 8080
-DATA_DIR            default ./data
+LLM_API_KEY     required for the brain. any OpenAI-compatible provider's key
+LLM_PROVIDER    optional. cerebras (default) | openai | openrouter | groq |
+                together | deepseek | mistral | xai | ollama
+LLM_BASE_URL    optional. override the endpoint (for a custom/proxy/self-host)
+LLM_MODEL       optional. override the model id for the chosen provider
+HOST            default 127.0.0.1
+PORT            default 8080
+DATA_DIR        default ./data
 ```
 
-see `.env.example`.
+Name a provider and supply just the key, or set `LLM_BASE_URL` + `LLM_MODEL`
+to point at any endpoint. Legacy `CEREBRAS_API_KEY` and the `USE_OPENAI` /
+`USE_OPENROUTER` / `USE_LOCAL_LLM` flags still work. see `.env.example`.
 
 ## auth modes
 
@@ -206,7 +214,7 @@ GET    /api/bots/:id/decision             last decision + current skill
 POST   /api/bots/:id/snapshot             manual capture
 POST   /api/admin/slots/:n/recycle        atomic 11-step restart
 GET    /api/server                        disk + mc-server state
-PATCH  /api/settings                      runtime settings (e.g. cerebrasApiKey)
+PATCH  /api/settings                      runtime settings (e.g. llmApiKey)
 ```
 
 websocket: `ws://127.0.0.1:8080/ws` — `snapshot` on connect, `bot:upsert` /
@@ -216,8 +224,6 @@ websocket: `ws://127.0.0.1:8080/ws` — `snapshot` on connect, `bot:upsert` /
 
 things that should land before this is plug-and-play for newcomers:
 
-- **multi-LLM support** — generalise the OpenAI-compatible client beyond
-  Cerebras. mindcraft has a 16-provider abstraction worth borrowing.
 - **per-bot subprocess isolation** — currently all bots share one node event
   loop. mitigated via rate-limited error reporter (BUG-014); the proper fix is
   a real refactor.

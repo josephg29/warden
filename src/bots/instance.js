@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import mineflayer from 'mineflayer';
 import { config } from '../config.js';
-import { settingsStore } from '../settings-store.js';
+import { hasLLMKey } from '../llm.js';
 import { Brain } from './brain.js';
 import { PlayerMemory } from './player-memory.js';
 import { safeError } from '../safe-error.js';
@@ -28,7 +28,7 @@ const SAFE_SPAWN_Y    = 30;
 const TP_TARGET_Y     = 80;
 
 function hasCerebrasKey() {
-  return Boolean(config.cerebrasApiKey || settingsStore.get('cerebrasApiKey'));
+  return hasLLMKey();
 }
 
 export const STATE = Object.freeze({

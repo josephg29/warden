@@ -253,10 +253,13 @@ export function createApp({ manager, mcServer, settingsStore, sessionLogger, dis
 
   api.patch('/settings', async (req, res, next) => {
     try {
-      const { cerebrasApiKey } = req.body ?? {};
-      if (cerebrasApiKey !== undefined) {
-        const trimmed = typeof cerebrasApiKey === 'string' ? cerebrasApiKey.trim() : '';
-        await settingsStore.set('cerebrasApiKey', trimmed || null);
+      // Accept the generic `llmApiKey` and the legacy `cerebrasApiKey` alias;
+      // both write to the canonical `llmApiKey` slot.
+      const body = req.body ?? {};
+      const incoming = body.llmApiKey !== undefined ? body.llmApiKey : body.cerebrasApiKey;
+      if (incoming !== undefined) {
+        const trimmed = typeof incoming === 'string' ? incoming.trim() : '';
+        await settingsStore.set('llmApiKey', trimmed || null);
       }
       res.json({ settings: settingsStore.toPublicJSON() });
     } catch (err) { next(err); }

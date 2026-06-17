@@ -4,6 +4,7 @@ import minecraftData from 'minecraft-data';
 import vec3Pkg from 'vec3';
 import { config } from '../config.js';
 import { settingsStore } from '../settings-store.js';
+import { resolveLLM, createLLMClient, isReasoningModel, isOpenRouter } from '../llm.js';
 import { safeError } from '../safe-error.js';
 import { brainDebug } from '../logger.js';
 
@@ -12,10 +13,6 @@ const { pathfinder, Movements, goals } = pathfinderPkg;
 // We need this so coords created locally have .floored() etc. that
 // mineflayer-pathfinder calls internally (otherwise GoalLookAtBlock crashes).
 const Vec3 = vec3Pkg.Vec3 ?? vec3Pkg.default?.Vec3 ?? vec3Pkg;
-
-function resolveCerebrasKey() {
-  return config.cerebrasApiKey || settingsStore.get('cerebrasApiKey') || null;
-}
 
 // ---------------------------------------------------------------------------
 // Tunables
@@ -126,20 +123,10 @@ const BRAIN_COLD_START_GRACE_MS    = 60_000;
 const LLM_BACKOFF_INITIAL_MS = 30_000;
 const LLM_BACKOFF_MAX_MS     = 300_000;
 
-// Local LLM swap. Set USE_LOCAL_LLM=1 to route both the OpenAI client + the
-// model name to a local Ollama (or any OpenAI-compatible) endpoint instead of
-// Cerebras. Default is OFF so existing flows are unchanged; flip via env var
-// for fleet testing against a local 7B (slower decisions, no API quota).
-const USE_LOCAL_LLM      = process.env.USE_LOCAL_LLM === '1';
-const LOCAL_LLM_BASE_URL = process.env.LOCAL_LLM_BASE_URL ?? 'http://localhost:11434/v1';
-const LOCAL_LLM_MODEL    = process.env.LOCAL_LLM_MODEL    ?? 'qwen2.5:7b';
-const CEREBRAS_MODEL     = 'qwen-3-235b-a22b-instruct-2507';
-const USE_OPENAI         = process.env.USE_OPENAI === '1';
-const OPENAI_BASE_URL    = process.env.OPENAI_BASE_URL    ?? 'https://api.openai.com/v1';
-const OPENAI_MODEL       = process.env.OPENAI_MODEL       ?? 'gpt-5-nano';
-const USE_OPENROUTER     = process.env.USE_OPENROUTER === '1';
-const OPENROUTER_BASE_URL = process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1';
-const OPENROUTER_MODEL   = process.env.OPENROUTER_MODEL   ?? 'qwen/qwen3-235b-a22b-2507';
+// Provider selection (key, base URL, model) lives in ../llm.js so the decision
+// loop and memory compression share one resolver. Point Warden at any
+// OpenAI-compatible API via LLM_API_KEY / LLM_BASE_URL / LLM_MODEL, or pick a
+// known provider with LLM_PROVIDER. Legacy USE_* flags still resolve there.
 
 // BUG-CEREBRAS-429: fleet-wide token bucket shared across all Brain instances
 // in the same process. Caps aggregate Cerebras calls/s before per-bot backoff.
@@ -597,13 +584,11 @@ export class Brain {
     ignoreLiveChat = false, // placebo: ignore real in-world peer chat; only chat via injectChat() is processed
   } = {}) {
     this._bot         = mfBot;
-    this._client      = USE_OPENROUTER
-      ? new OpenAI({ apiKey: process.env.OPENROUTER_API_KEY, baseURL: OPENROUTER_BASE_URL })
-      : USE_OPENAI
-        ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY, baseURL: OPENAI_BASE_URL })
-        : USE_LOCAL_LLM
-          ? new OpenAI({ apiKey: 'ollama', baseURL: LOCAL_LLM_BASE_URL })
-          : new OpenAI({ apiKey: resolveCerebrasKey(), baseURL: 'https://api.cerebras.ai/v1' });
+    // Resolve the provider once per brain (key/baseURL/model). The client is
+    // created against whatever OpenAI-compatible endpoint is configured.
+    this._llm         = resolveLLM();
+    this._client      = createLLMClient()
+      ?? new OpenAI({ apiKey: this._llm.apiKey ?? 'missing', baseURL: this._llm.baseURL });
     this._onDecision  = onDecision;
     this._onError     = onError;
     this._onReconnect = onReconnect;
@@ -1851,29 +1836,26 @@ export class Brain {
     if (_bucketWaitMs > 500) console.info(`fleet-bucket-wait: ${_bucketWaitMs}ms (bot=${this._bot.username})`);
 
     const params = {
-      model:    USE_OPENROUTER ? OPENROUTER_MODEL
-              : USE_OPENAI    ? OPENAI_MODEL
-              : USE_LOCAL_LLM ? LOCAL_LLM_MODEL
-              : CEREBRAS_MODEL,
+      model:    this._llm.model,
       messages: [
         { role: 'system', content: buildSystemPrompt(this._blockedSigs, this._systemPromptOverride ?? undefined) },
         { role: 'user',   content: `Current state:\n${observation}\n\nWhat skill do you run next?` },
       ],
     };
-    if (USE_OPENAI) {
-      // gpt-5-nano is a reasoning model: uses max_completion_tokens, rejects
-      // custom temperature/top_p (only default=1 allowed). reasoning_effort
-      // 'low' keeps per-tick decisions snappy.
+    if (isReasoningModel(this._llm.model)) {
+      // OpenAI reasoning models (o-series, gpt-5*) use max_completion_tokens
+      // and reject custom temperature/top_p (only default=1 allowed).
+      // reasoning_effort 'low' keeps per-tick decisions snappy.
       params.max_completion_tokens = 1500;
       params.reasoning_effort      = 'low';
     } else {
-      // OpenRouter (DeepSeek-V3), local (Ollama), and Cerebras all use the
-      // standard chat-completions param shape.
+      // Cerebras, OpenRouter, Ollama, Groq, etc. use the standard
+      // chat-completions param shape.
       params.max_tokens  = 1500;
       params.temperature = 0.7;
       params.top_p       = 0.8;
     }
-    if (USE_OPENROUTER) {
+    if (isOpenRouter(this._llm.baseURL)) {
       // OpenRouter provider routing: prefer fastest-throughput backends and
       // fall through to another provider if one is slow/down. This is what
       // kills the timeout-storm failure mode that DeepSeek's single direct
@@ -2733,7 +2715,7 @@ export class Brain {
 
   _reportError(err, where) {
     // Label the error with the provider actually in use, not a hardcoded one.
-    const prov = USE_OPENROUTER ? 'OpenRouter' : USE_OPENAI ? 'OpenAI' : USE_LOCAL_LLM ? 'local LLM' : 'Cerebras';
+    const prov = this._llm?.provider ?? 'the LLM provider';
     const msg = err.status === 401 ? `${prov} rejected the key (401).`
               : err.status === 402 ? `${prov} returned 402 (Payment Required — out of credits).`
               : err.status === 429 ? `${prov} rate-limited (429). Slow down.`

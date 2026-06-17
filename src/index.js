@@ -5,6 +5,7 @@ import { config } from './config.js';
 import { installFileLogger } from './logger.js';
 import { Store } from './store.js';
 import { settingsStore } from './settings-store.js';
+import { hasLLMKey, resolveLLM } from './llm.js';
 import { sessionLogger } from './session-logger.js';
 import { BotManager } from './bots/manager.js';
 import { MinecraftServerManager } from './mc-server/manager.js';
@@ -30,8 +31,11 @@ await store.load();
 
 await settingsStore.load();
 
-if (!settingsStore.get('cerebrasApiKey')) {
-  console.warn('[warden] no Cerebras API key — set one in the dashboard or .env');
+if (hasLLMKey()) {
+  const { provider, model } = resolveLLM();
+  console.info(`[warden] LLM provider: ${provider} (${model})`);
+} else {
+  console.warn('[warden] no LLM API key — set one in the dashboard, or LLM_API_KEY in .env');
 }
 
 const manager = new BotManager(store);

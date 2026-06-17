@@ -15,14 +15,12 @@ class SettingsStore extends EventEmitter {
       this._data = JSON.parse(raw);
     } catch { /* file doesn't exist yet — start empty */ }
 
-    // env var seeds the key if nothing is stored yet
-    if (!this._data.cerebrasApiKey && process.env.CEREBRAS_API_KEY) {
-      this._data.cerebrasApiKey = process.env.CEREBRAS_API_KEY;
+    // env vars seed the key if nothing is stored yet. LLM_API_KEY is the
+    // generic, provider-agnostic var; CEREBRAS_API_KEY is the legacy alias.
+    if (!this._data.llmApiKey) {
+      const seed = process.env.LLM_API_KEY || process.env.CEREBRAS_API_KEY;
+      if (seed) this._data.llmApiKey = seed;
     }
-    // legacy DeepSeek seeding (kept for A/B fallback):
-    // if (!this._data.deepseekApiKey && process.env.DEEPSEEK_API_KEY) {
-    //   this._data.deepseekApiKey = process.env.DEEPSEEK_API_KEY;
-    // }
   }
 
   get(key) {
@@ -40,8 +38,10 @@ class SettingsStore extends EventEmitter {
   }
 
   toPublicJSON() {
+    const hasKey = !!(this._data.llmApiKey || this._data.cerebrasApiKey);
     return {
-      hasCerebrasKey: !!this._data.cerebrasApiKey,
+      hasLLMKey:      hasKey,
+      hasCerebrasKey: hasKey,  // legacy alias for the existing dashboard
     };
   }
 
